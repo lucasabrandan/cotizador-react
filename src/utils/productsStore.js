@@ -3,6 +3,7 @@
 
 import { DEFAULT_PRODUCTS } from "../data/products.js";
 
+
 const KEY = "product_catalog_v1";
 
 /* ---------- Helpers ---------- */
@@ -139,3 +140,5 @@ export function importProductsJSON(file) {
     }
   });
 }
+// Alias por compatibilidad con componentes que importan "saveProducts"
+export const saveProducts = setProducts;

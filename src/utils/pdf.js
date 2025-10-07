@@ -314,3 +314,26 @@ export default async function generateQuotePdf(data) {
 
   document.body.removeChild(root);
 }
+
+
+// NUEVO: crear Blob del PDF sin forzar descarga
+export async function createQuotePdfBlob(data) {
+  // Reutilizá tu misma lógica de armado, pero devolvé el Blob al final.
+  // Si ya usás jsPDF, sería algo como:
+  // const doc = new jsPDF(); ...; return doc.output("blob");
+
+  // Ejemplo genérico (ajustá a tu lib real):
+  const { jsPDF } = await import("jspdf"); // si ya lo importás arriba, no repitas
+  const doc = new jsPDF();
+
+  // ——— aquí va el mismo render que usás en generateQuotePdf(data) ———
+  // título, tabla, totales, etc.
+  // ------------------------------------------------------------------
+
+  const filename =
+    (data?.type === "mantenimiento" ? "REP-" : "VEN-") +
+    (data?.quoteNumber || "0000") + ".pdf";
+
+  const blob = doc.output("blob");
+  return { blob, filename };
+}

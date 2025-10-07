@@ -1,10 +1,8 @@
 // src/views/QuoteView.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getProducts } from "../utils/productsStore.js";
-import { saveQuote } from "../utils/storage.js";
-import generateQuotePdf, { currency } from "/utils/pdf.js";
-
-
+import { getProducts } from "@/utils/productsStore.js";
+import { saveQuote } from "@/utils/storage.js";
+import generateQuotePdf, { currency } from "@/utils/pdf.js";
 
 /** Opciones de condición fiscal */
 const FISCAL_OPTIONS = [
@@ -22,18 +20,17 @@ const maxDateStr = () => {
   return d.toISOString().slice(0, 10);
 };
 
-// VEN-DDMM-A
-function defaultQuoteNumber() {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `VEN-${dd}${mm}-A`;
-}
+// clave para el borrador
+const DRAFT_KEY = "draft_sale_v1";
 
 export default function QuoteView() {
   // --------- Cabecera ---------
-  const [quoteNumber, setQuoteNumber] = useState(defaultQuoteNumber());
+  const [quoteNumber, setQuoteNumber] = useState(
+    "VEN-" + todayStr().slice(5, 10).replace("-", "") + "-A"
+  );
   const [date, setDate] = useState(todayStr());
+  const minDate = todayStr();
+  const maxDate = maxDateStr();
 
   // --------- Cliente ---------
   const [clientName, setClientName] = useState("");
@@ -48,7 +45,6 @@ export default function QuoteView() {
   const [showSug, setShowSug] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1); // navegación ↑/↓
   const searchRef = useRef(null);
-  const sugBoxRef = useRef(null);
 
   // --------- Extras ---------
   const [applyDiscount, setApplyDiscount] = useState(false);
@@ -57,30 +53,70 @@ export default function QuoteView() {
   const [shipping, setShipping] = useState(0);
   const [notes, setNotes] = useState("");
 
-  // --------- Reglas de fecha ---------
-  const minDate = todayStr();
-  const maxDate = maxDateStr();
+  // --------- Restaurar borrador al montar ---------
   useEffect(() => {
-    if (date < minDate) setDate(minDate);
-    if (date > maxDate) setDate(maxDate);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date]);
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
 
-  // Cerrar sugerencias al click afuera
-  useEffect(() => {
-    function onDocClick(e) {
-      if (!sugBoxRef.current) return;
-      if (
-        !sugBoxRef.current.contains(e.target) &&
-        e.target !== searchRef.current
-      ) {
-        setShowSug(false);
-        setActiveIndex(-1);
-      }
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+      setQuoteNumber(d.quoteNumber ?? quoteNumber);
+      setDate(d.date ?? todayStr());
+      setClientName(d.clientName ?? "");
+      setClientContact(d.clientContact ?? "");
+      setClientEmail(d.clientEmail ?? "");
+      setClientCuit(d.clientCuit ?? "");
+      setClientFiscal(d.clientFiscal ?? FISCAL_OPTIONS[0]);
+
+      setItems(Array.isArray(d.items) ? d.items : []);
+      setApplyDiscount(!!d.applyDiscount);
+      setDiscount(Number(d.discount) || 0);
+      setHasShipping(!!d.hasShipping);
+      setShipping(Number(d.shipping) || 0);
+      setNotes(d.notes ?? "");
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // --------- Guardar borrador automáticamente ---------
+  useEffect(() => {
+    const payload = {
+      quoteNumber,
+      date,
+      clientName,
+      clientContact,
+      clientEmail,
+      clientCuit,
+      clientFiscal,
+      items,
+      applyDiscount,
+      discount,
+      hasShipping,
+      shipping,
+      notes,
+      _ts: Date.now(),
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+  }, [
+    quoteNumber,
+    date,
+    clientName,
+    clientContact,
+    clientEmail,
+    clientCuit,
+    clientFiscal,
+    items,
+    applyDiscount,
+    discount,
+    hasShipping,
+    shipping,
+    notes,
+  ]);
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    alert("Borrador limpiado ✅");
+  }
 
   // --------- Sugerencias (usa catálogo editable) ---------
   const suggestions = useMemo(() => {
@@ -88,11 +124,7 @@ export default function QuoteView() {
     const q = search.trim().toLowerCase();
     if (!q) return [];
     return list
-      .filter(
-        (p) =>
-          p.sku.toLowerCase().includes(q) ||
-          p.name.toLowerCase().includes(q)
-      )
+      .filter((p) => p.sku.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
       .slice(0, 30);
   }, [search]);
 
@@ -109,15 +141,7 @@ export default function QuoteView() {
         };
         return next;
       }
-      return [
-        ...prev,
-        {
-          sku: prod.sku,
-          name: prod.name,
-          price: Number(prod.price) || 0,
-          qty: 1,
-        },
-      ];
+      return [...prev, { sku: prod.sku, name: prod.name, price: Number(prod.price) || 0, qty: 1 }];
     });
     setSearch("");
     setShowSug(false);
@@ -147,9 +171,7 @@ export default function QuoteView() {
 
   function updateQty(sku, val) {
     const v = Math.max(1, Number(val) || 1);
-    setItems((prev) =>
-      prev.map((it) => (it.sku === sku ? { ...it, qty: v } : it))
-    );
+    setItems((prev) => prev.map((it) => (it.sku === sku ? { ...it, qty: v } : it)));
   }
 
   function removeItem(sku) {
@@ -158,36 +180,22 @@ export default function QuoteView() {
 
   // --------- Totales ---------
   const subtotal = useMemo(
-    () =>
-      items.reduce(
-        (acc, it) =>
-          acc + (Number(it.price) || 0) * (Number(it.qty) || 0),
-        0
-      ),
+    () => items.reduce((acc, it) => acc + (Number(it.price) || 0) * (Number(it.qty) || 0), 0),
     [items]
   );
   const discountAmount = useMemo(
-    () =>
-      applyDiscount
-        ? subtotal * ((Number(discount) || 0) / 100)
-        : 0,
+    () => (applyDiscount ? subtotal * ((Number(discount) || 0) / 100) : 0),
     [applyDiscount, discount, subtotal]
   );
   const finalTotal = useMemo(
-    () =>
-      Math.max(
-        0,
-        subtotal - discountAmount + (hasShipping ? Number(shipping) || 0 : 0)
-      ),
+    () => Math.max(0, subtotal - discountAmount + (hasShipping ? Number(shipping) || 0 : 0)),
     [subtotal, discountAmount, hasShipping, shipping]
   );
 
   // --------- Habilitar acciones ---------
-  const canAct =
-    clientName.trim().length > 0 &&
-    items.length > 0 &&
-    date >= minDate &&
-    date <= maxDate;
+  const clientOk = clientName.trim().length > 0;
+  const dateOk = date >= minDate && date <= maxDate;
+  const canAct = clientOk && dateOk && items.length > 0;
 
   // --------- Acciones ---------
   async function handlePdf() {
@@ -238,6 +246,43 @@ export default function QuoteView() {
     alert("Presupuesto guardado ✅");
   }
 
+  // --------- Compartir por WhatsApp ---------
+  function shareWhatsApp() {
+    if (!canAct) return;
+
+    // Preparo un resumen breve para pegar en WhatsApp
+    const top = items.slice(0, 12); // evitar mensajes larguísimos
+    const lines = [
+      `*Presupuesto de Venta*`,
+      `N°: ${quoteNumber}`,
+      `Fecha: ${date}`,
+      `Cliente: ${clientName}`,
+      clientContact ? `Contacto: ${clientContact}` : null,
+      clientEmail ? `Email: ${clientEmail}` : null,
+      clientCuit ? `CUIT/CUIL: ${clientCuit}` : null,
+      clientFiscal ? `Cond. Fiscal: ${clientFiscal}` : null,
+      ``,
+      `*Ítems (${items.length})*`,
+      ...top.map(
+        (it) =>
+          `• ${it.sku} — ${it.name} x${it.qty} @ ${currency.format(Number(it.price) || 0)} = ${currency.format(
+            (Number(it.price) || 0) * (Number(it.qty) || 0)
+          )}`
+      ),
+      items.length > top.length ? `… (${items.length - top.length} más)` : null,
+      ``,
+      `Subtotal: ${currency.format(subtotal)}`,
+      applyDiscount ? `Descuento: ${Number(discount) || 0}%` : null,
+      hasShipping ? `Envío: ${currency.format(Number(shipping) || 0)}` : null,
+      `TOTAL: *${currency.format(finalTotal)}*`,
+      notes ? `\nNotas: ${notes}` : null,
+    ].filter(Boolean);
+
+    const txt = encodeURIComponent(lines.join("\n"));
+    const url = `https://wa.me/?text=${txt}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="card">
       <h2>Nueva Cotización — Venta</h2>
@@ -261,11 +306,9 @@ export default function QuoteView() {
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
-          {(date < minDate || date > maxDate) && (
-            <div className="error">
-              La fecha debe estar entre hoy y 50 días hacia adelante.
-            </div>
-          )}
+          <div className="error" style={{ display: dateOk ? "none" : "block" }}>
+            La fecha debe estar entre hoy y 50 días hacia adelante.
+          </div>
         </div>
       </div>
 
@@ -277,11 +320,9 @@ export default function QuoteView() {
             placeholder="Nombre / Empresa"
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
-            className={clientName.trim().length < 2 ? "input-error" : ""}
+            className={clientOk ? "" : "input-error"}
           />
-          {clientName.trim().length < 2 && (
-            <div className="error">Ingresá el nombre del cliente</div>
-          )}
+          {!clientOk && <div className="error">Ingresá el nombre del cliente</div>}
         </div>
         <div>
           <label>Contacto</label>
@@ -300,7 +341,6 @@ export default function QuoteView() {
             placeholder="correo@dominio.com"
             value={clientEmail}
             onChange={(e) => setClientEmail(e.target.value)}
-            type="email"
           />
         </div>
         <div>
@@ -316,10 +356,7 @@ export default function QuoteView() {
       <div className="row">
         <div>
           <label>Condición fiscal</label>
-          <select
-            value={clientFiscal}
-            onChange={(e) => setClientFiscal(e.target.value)}
-          >
+          <select value={clientFiscal} onChange={(e) => setClientFiscal(e.target.value)}>
             {FISCAL_OPTIONS.map((op) => (
               <option key={op} value={op}>
                 {op}
@@ -327,12 +364,14 @@ export default function QuoteView() {
             ))}
           </select>
         </div>
-        <div />
+        <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
+          <button className="btn ghost" onClick={clearDraft}>Limpiar borrador</button>
+        </div>
       </div>
 
       {/* Buscador + sugerencias */}
       <div className="row">
-        <div className="searchbox" ref={sugBoxRef}>
+        <div className="searchbox">
           <label>Buscar por SKU o nombre</label>
           <input
             ref={searchRef}
@@ -352,7 +391,6 @@ export default function QuoteView() {
                 key={p.sku}
                 className={i === activeIndex ? "active" : ""}
                 onMouseDown={() => addItem(p)}
-                title={`${p.name} — ${currency.format(p.price)}`}
               >
                 <b>{p.sku}</b> — {p.name} · {currency.format(p.price)}
               </li>
@@ -504,12 +542,15 @@ export default function QuoteView() {
         </div>
       </div>
 
-      <div className="actions" style={{ marginTop: 10 }}>
+      <div className="actions" style={{ marginTop: 10, flexWrap: "wrap", gap: 8 }}>
         <button className="btn secondary" onClick={handleSave} disabled={!canAct}>
           Guardar
         </button>
         <button className="btn" onClick={handlePdf} disabled={!canAct}>
           Generar PDF
+        </button>
+        <button className="btn success" onClick={shareWhatsApp} disabled={!canAct}>
+          Compartir por WhatsApp
         </button>
       </div>
     </div>

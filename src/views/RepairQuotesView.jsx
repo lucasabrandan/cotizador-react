@@ -1,12 +1,7 @@
 // src/views/RepairQuotesView.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  getRepairs,
-  removeRepairQuote,
-  exportRepairsJSON,
-  importRepairsJSON,
-} from "../utils/storageRepairs.js";
-import generateRepairPdf, { currency } from "../utils/pdfRepair.js";
+import { getRepairs, removeRepairQuote, exportRepairsJSON, importRepairsJSON } from "@/utils/storageRepairs.js";
+import generateRepairPdf, { currency } from "@/utils/pdfRepair.js";
 
 export default function RepairQuotesView() {
   const [rows, setRows] = useState([]);
@@ -14,12 +9,14 @@ export default function RepairQuotesView() {
   const [importing, setImporting] = useState(false);
 
   function refresh() {
-    // Ordena por fecha (desc) y luego por createdAt
-    const list = getRepairs().slice().sort((a, b) => {
-      const da = (a.date || "").localeCompare(b.date || "");
-      if (da !== 0) return -da;
-      return (b.createdAt || "").localeCompare(a.createdAt || "");
-    });
+    // orden por fecha desc y luego por createdAt desc
+    const list = getRepairs()
+      .slice()
+      .sort((a, b) => {
+        const d = (b.date || "").localeCompare(a.date || "");
+        if (d !== 0) return d;
+        return (b.createdAt || "").localeCompare(a.createdAt || "");
+      });
     setRows(list);
   }
 
@@ -37,6 +34,7 @@ export default function RepairQuotesView() {
         r.clientContact,
         r.clientEmail,
         r.clientCuit,
+        r.clientFiscal,
         r.notes,
         (r.equipments || [])
           .map(
@@ -54,7 +52,7 @@ export default function RepairQuotesView() {
 
   async function handlePdf(r) {
     await generateRepairPdf({
-      type: "reparacion",
+      type: r.type || "reparacion",
       quoteNumber: r.quoteNumber,
       date: r.date,
       clientName: r.clientName,
@@ -97,12 +95,13 @@ export default function RepairQuotesView() {
       <h2 style={{ marginTop: 0 }}>Reparaciones guardadas</h2>
 
       {/* Filtros / acciones */}
-      <div className="filters">
+      <div className="actions" style={{ gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
         <input
           type="text"
           placeholder="Buscar por N°, cliente, equipo, etc."
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          style={{ minWidth: 260 }}
         />
         <button className="btn secondary" onClick={exportRepairsJSON}>
           Exportar JSON
@@ -158,8 +157,7 @@ export default function RepairQuotesView() {
                     <button className="btn danger" onClick={() => handleDelete(r.id)}>
                       Eliminar
                     </button>
-                    {/* Si en el futuro querés “Editar”, tendríamos que guardar la reparación en un estado global
-                        o pasar por URL con ID y rehidratar en RepairQuoteView. */}
+                    {/* Para "Editar" en el futuro: crear vista de edición que rehidrate por ID */}
                   </div>
                 </td>
               </tr>

@@ -1,8 +1,8 @@
 // src/views/RepairQuoteView.jsx
-import React, { useMemo, useRef, useState } from "react";
-import { getProducts } from "../utils/productsStore.js";
-import { saveRepairQuote } from "../utils/storageRepairs.js";
-import generateRepairPdf, { currency } from "../utils/pdfRepair.js";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { getProducts } from "@/utils/productsStore.js";
+import { saveRepairQuote } from "@/utils/storageRepairs.js";
+import generateRepairPdf, { currency } from "@/utils/pdfRepair.js";
 
 const FISCAL_OPTIONS = [
   "Consumidor Final",
@@ -20,6 +20,8 @@ const maxDateStr = () => {
 };
 const defaultRepNum = () =>
   "REP-" + todayStr().slice(5, 10).replace("-", "") + "-A";
+
+const DRAFT_KEY = "draft_repair_v1";
 
 function blankEquipment() {
   return {
@@ -54,12 +56,76 @@ export default function RepairQuoteView() {
   const [equipos, setEquipos] = useState([blankEquipment()]);
   const searchRefs = useRef({}); // para devolver foco por equipo
 
-  // Notas generales (editable, viene con el texto que querías por defecto)
+  // Notas
   const [notes, setNotes] = useState(
     "Este presupuesto posee una validez de 7 días a partir de su emisión."
   );
 
-  // Sugerencias por equipo (usa catálogo editable desde productsStore)
+  /* ========== Restaurar borrador ========== */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+
+      setQuoteNumber(d.quoteNumber ?? defaultRepNum());
+      setDate(d.date ?? todayStr());
+      setClientName(d.clientName ?? "");
+      setClientContact(d.clientContact ?? "");
+      setClientEmail(d.clientEmail ?? "");
+      setClientCuit(d.clientCuit ?? "");
+      setClientFiscal(d.clientFiscal ?? FISCAL_OPTIONS[0]);
+
+      if (Array.isArray(d.equipos) && d.equipos.length) {
+        setEquipos(
+          d.equipos.map((e) => ({
+            ...blankEquipment(),
+            ...e,
+            id: e.id || (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())),
+            repuestos: Array.isArray(e.repuestos) ? e.repuestos : [],
+            sugOpen: false,
+            sugIndex: -1,
+          }))
+        );
+      }
+      setNotes(d.notes ?? notes);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ========== Guardar borrador ========== */
+  useEffect(() => {
+    const payload = {
+      quoteNumber,
+      date,
+      clientName,
+      clientContact,
+      clientEmail,
+      clientCuit,
+      clientFiscal,
+      equipos,
+      notes,
+      _ts: Date.now(),
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+  }, [
+    quoteNumber,
+    date,
+    clientName,
+    clientContact,
+    clientEmail,
+    clientCuit,
+    clientFiscal,
+    equipos,
+    notes,
+  ]);
+
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    alert("Borrador de reparación limpiado ✅");
+  }
+
+  /* ========== Sugerencias por equipo ========== */
   function suggestionsFor(equipo) {
     const list = getProducts();
     const q = (equipo.repuestoSearch || "").trim().toLowerCase();
@@ -130,7 +196,7 @@ export default function RepairQuoteView() {
     );
   }
 
-  // Totales
+  /* ========== Totales ========== */
   const subtotal = useMemo(() => {
     let sum = 0;
     for (const e of equipos) {
@@ -145,7 +211,7 @@ export default function RepairQuoteView() {
 
   const finalTotal = subtotal;
 
-  // Validaciones para habilitar acciones
+  /* ========== Validaciones ========== */
   const clientOk = clientName.trim().length > 0;
   const dateOk = date >= minDate && date <= maxDate;
   const equiposOk = equipos.every(
@@ -155,7 +221,7 @@ export default function RepairQuoteView() {
   );
   const canAct = clientOk && dateOk && equiposOk && subtotal > 0;
 
-  // Arma ítems aplanados (para PDF y guardado)
+  /* ========== Ítems aplanados (para PDF/guardar/WA) ========== */
   function flattenItems() {
     const items = [];
     for (const e of equipos) {
@@ -181,7 +247,7 @@ export default function RepairQuoteView() {
     return items;
   }
 
-  // Guardar (storage SEPARADO de ventas)
+  /* ========== Guardar ========== */
   function handleSave() {
     if (!canAct) return;
     const payload = {
@@ -194,8 +260,8 @@ export default function RepairQuoteView() {
       clientEmail,
       clientCuit,
       clientFiscal,
-      equipments: equipos, // guardamos detallado
-      items: flattenItems(), // y también aplanado por conveniencia
+      equipments: equipos, // detalle
+      items: flattenItems(), // aplanado
       subtotal,
       finalTotal,
       notes,
@@ -205,7 +271,7 @@ export default function RepairQuoteView() {
     alert("Reparación guardada ✅");
   }
 
-  // PDF (plantilla específica de reparación)
+  /* ========== PDF ========== */
   async function handlePdf() {
     if (!canAct) return;
     await generateRepairPdf({
@@ -223,6 +289,46 @@ export default function RepairQuoteView() {
       finalTotal,
       notes,
     });
+  }
+
+  /* ========== WhatsApp ========== */
+  function shareWhatsApp() {
+    if (!canAct) return;
+    const items = flattenItems();
+    const top = items.slice(0, 12);
+    const equiposResumen = equipos
+      .map((e, i) => `• E${i + 1}: ${[e.marca, e.modelo, e.serie].filter(Boolean).join(" ")}${e.descripcion ? ` — ${e.descripcion}` : ""}`)
+      .join("\n");
+
+    const lines = [
+      `*Presupuesto de Reparación*`,
+      `N°: ${quoteNumber}`,
+      `Fecha: ${date}`,
+      `Cliente: ${clientName}`,
+      clientContact ? `Contacto: ${clientContact}` : null,
+      clientEmail ? `Email: ${clientEmail}` : null,
+      clientCuit ? `CUIT/CUIL: ${clientCuit}` : null,
+      clientFiscal ? `Cond. Fiscal: ${clientFiscal}` : null,
+      ``,
+      `*Equipos (${equipos.length})*`,
+      equiposResumen || "-",
+      ``,
+      `*Ítems (${items.length})*`,
+      ...top.map(
+        (it) =>
+          `• ${it.sku} — ${it.name} x${it.qty} @ ${currency.format(Number(it.price) || 0)} = ${currency.format(
+            (Number(it.price) || 0) * (Number(it.qty) || 0)
+          )}`
+      ),
+      items.length > top.length ? `… (${items.length - top.length} más)` : null,
+      ``,
+      `TOTAL: *${currency.format(finalTotal)}*`,
+      notes ? `\nNotas: ${notes}` : null,
+    ].filter(Boolean);
+
+    const txt = encodeURIComponent(lines.join("\n"));
+    const url = `https://wa.me/?text=${txt}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -306,10 +412,12 @@ export default function RepairQuoteView() {
             ))}
           </select>
         </div>
-        <div />
+        <div style={{ display: "flex", alignItems: "end", gap: 8 }}>
+          <button className="btn ghost" onClick={clearDraft}>Limpiar borrador</button>
+        </div>
       </div>
 
-      {/* Aviso/gateo para no cargar equipos hasta tener cliente y fecha ok */}
+      {/* Gateo UI si falta cliente/fecha */}
       {(!clientOk || !dateOk) && (
         <div className="card" style={{ opacity: 0.6, pointerEvents: "none", marginTop: 10 }}>
           <h3>Equipos</h3>
@@ -322,7 +430,7 @@ export default function RepairQuoteView() {
         <div style={{ marginTop: 10 }}>
           <h3>Equipos</h3>
 
-          {equipos.map((eq, idx) => {
+          {equipos.map((eq) => {
             const sugs = suggestionsFor(eq);
             return (
               <div key={eq.id} className="card" style={{ marginTop: 10 }}>
@@ -504,9 +612,6 @@ export default function RepairQuoteView() {
                     </button>
                   </div>
                 </div>
-
-                {/* Totales por equipo (opcional, si querés mostrarlos aquí también) */}
-                {/* Podrías calcular por equipo similar a ventas; lo omitimos en UI para no duplicar visual. */}
               </div>
             );
           })}
@@ -517,7 +622,7 @@ export default function RepairQuoteView() {
         </div>
       )}
 
-      {/* Observaciones generales */}
+      {/* Observaciones */}
       <div className="row" style={{ marginTop: 10 }}>
         <div>
           <label>Observaciones</label>
@@ -544,12 +649,15 @@ export default function RepairQuoteView() {
         </div>
       </div>
 
-      <div className="actions" style={{ marginTop: 10 }}>
+      <div className="actions" style={{ marginTop: 10, flexWrap: "wrap", gap: 8 }}>
         <button className="btn secondary" onClick={handleSave} disabled={!canAct}>
           Guardar
         </button>
         <button className="btn" onClick={handlePdf} disabled={!canAct}>
           Generar PDF
+        </button>
+        <button className="btn success" onClick={shareWhatsApp} disabled={!canAct}>
+          Compartir por WhatsApp
         </button>
       </div>
     </div>

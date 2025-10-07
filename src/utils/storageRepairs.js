@@ -73,3 +73,5 @@ export function importRepairsJSON(file) {
     r.readAsText(file);
   });
 }
+// Alias para mantener compatibilidad con las vistas
+export const getRepairQuotes = getRepairs;

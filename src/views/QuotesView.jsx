@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { getQuotes, removeQuote } from "../utils/storage.js";
-import generateQuotePdf, { currency } from "/src/utils/pdf.js";
+import { getQuotes, removeQuote } from "@/utils/storage.js";
+import generateQuotePdf, { currency } from "@/utils/pdf.js";
 
 
 export default function QuotesView(){

@@ -2,13 +2,14 @@
 import React, { useMemo, useState } from "react";
 import {
   getProducts,
+  setProducts,
   upsertProduct,
   removeProduct,
   exportProductsJSON,
   importProductsJSON,
   resetProductsToDefaults,
-  setProducts,
-} from "../utils/productsStore.js";
+} from "@/utils/productsStore.js";
+import { currency } from "@/utils/pdf.js";
 
 export default function ProductsAdmin() {
   // Estado base
@@ -23,7 +24,7 @@ export default function ProductsAdmin() {
     setRows(getProducts());
   }
 
-  // ---------- Alta / actualización desde el formulario ----------
+  // Alta / actualización rápida (form de arriba)
   const canAdd = useMemo(
     () => sku.trim() && name.trim() && Number(price) >= 0,
     [sku, name, price]
@@ -34,20 +35,19 @@ export default function ProductsAdmin() {
     setErr("");
     if (!canAdd) return;
 
-    const existsOther = rows.some(
-      (p) => p.sku.trim().toLowerCase() === sku.trim().toLowerCase()
-    );
-
-    // Permitimos “Actualizar” si el SKU ya existe
-    upsertProduct({ sku: sku.trim(), name: name.trim(), price: Number(price) || 0 });
-    refresh();
+    upsertProduct({
+      sku: sku.trim(),
+      name: name.trim(),
+      price: Number(price) || 0,
+    });
 
     setSku("");
     setName("");
     setPrice("");
+    refresh();
   }
 
-  // ---------- Edición inline en la tabla ----------
+  // Edición inline en tabla
   function handleUpdate(i, field, value) {
     const next = [...rows];
     next[i] = {
@@ -66,14 +66,14 @@ export default function ProductsAdmin() {
     const cleanPrice = Number(r.price) || 0;
 
     if (!cleanSku || !cleanName) {
-      // Si el usuario borró datos críticos, simplemente recargamos desde storage
+      // si borró datos clave, revertimos
       refresh();
       return;
     }
 
-    // Validar SKU duplicado (distinto índice)
+    // evitar duplicados de SKU (case-insensitive) en otra fila
     const duplicate = rows.some(
-      (x, idx) => idx !== i && x.sku.trim().toLowerCase() === cleanSku.toLowerCase()
+      (x, idx) => idx !== i && String(x.sku).trim().toLowerCase() === cleanSku.toLowerCase()
     );
     if (duplicate) {
       setErr("Ya existe otro producto con ese SKU.");
@@ -85,18 +85,18 @@ export default function ProductsAdmin() {
     refresh();
   }
 
-  // ---------- Filtros ----------
+  // Filtro
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return rows;
     return rows.filter(
       (r) =>
-        r.sku.toLowerCase().includes(s) ||
-        r.name.toLowerCase().includes(s)
+        String(r.sku).toLowerCase().includes(s) ||
+        String(r.name).toLowerCase().includes(s)
     );
   }, [q, rows]);
 
-  // ---------- Importar / Exportar / Reset / Vaciar ----------
+  // Import/Export/Reset/Vaciar
   async function handleImport(ev) {
     const file = ev.target.files?.[0];
     if (!file) return;
@@ -128,7 +128,7 @@ export default function ProductsAdmin() {
       <h2>Catálogo de productos</h2>
 
       {/* Toolbar superior */}
-      <div className="actions" style={{ justifyContent: "space-between", marginTop: 8, marginBottom: 8 }}>
+      <div className="actions" style={{ justifyContent: "space-between", marginTop: 8, marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
         <input
           placeholder="Buscar por SKU o nombre…"
           value={q}
@@ -136,7 +136,7 @@ export default function ProductsAdmin() {
           style={{ minWidth: 260 }}
         />
 
-        <div className="actions" style={{ gap: 8 }}>
+        <div className="actions" style={{ gap: 8, flexWrap: "wrap" }}>
           <button className="btn secondary" onClick={exportProductsJSON}>Exportar JSON</button>
 
           <label className="btn secondary" style={{ cursor: "pointer" }}>
@@ -154,7 +154,7 @@ export default function ProductsAdmin() {
         </div>
       </div>
 
-      {/* Formulario alta/actualización rápida */}
+      {/* Alta / actualización rápida */}
       <form onSubmit={handleAdd} className="row" style={{ marginTop: 10 }}>
         <div>
           <label>SKU</label>
@@ -256,6 +256,16 @@ export default function ProductsAdmin() {
               </tr>
             ))}
           </tbody>
+          {/* Opcional: pie de tabla con total de ítems */}
+          {filtered.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan="4" className="num" style={{ fontWeight: 700 }}>
+                  {filtered.length} ítem(s)
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
